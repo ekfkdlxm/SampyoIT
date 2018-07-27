@@ -5,7 +5,7 @@ import pymssql
 import time
 
 
-import object_detection_tutorial as objectDetection
+import Object_detection_image as objectDetection
 
 #데이터 베이스 연결
 
@@ -23,13 +23,13 @@ ipAddress = "rtsp://admin:sampyo!1@10.62.67.226:554/profile2/media.smp"
 cursor = conn.cursor()
 
 
-cursor.execute("INSERT INTO [test1].[dbo].[PCS_PRODUCT_COUNT] (PLANT_CD,BPNO,ITEM_CD,PDATE,LINE_NO,PTIME,PMINUTE) VALUES ('I05','B','ABCD','2000',2,'1234','1424')")
+#cursor.execute("INSERT INTO [test1].[dbo].[PCS_PRODUCT_COUNT] (PLANT_CD,BPNO,ITEM_CD,PDATE,LINE_NO,PTIME,PMINUTE) VALUES ('I05','B','ABCD','2008',2,'1254','1424')")
 conn.commit()
 
 
 #영상 실행
 #cap = cv2.VideoCapture(ipAddress)
-cap = cv2.VideoCapture("6.mov")
+cap = cv2.VideoCapture("7.mov")
 i = 0
 
 
@@ -40,6 +40,10 @@ mortarCount =0
 # 첫프레임 read
 _, imgInput = cap.read()
 _, imgPre = cap.read()
+
+#첫 objectDetection Test
+image_expanded = np.expand_dims(imgInput, axis=0)
+objectDetection.mortarClassification(imgInput,image_expanded)
 
 # 관심영역 Roi 지정
 rows, cols, channels = imgPre.shape
@@ -56,12 +60,11 @@ passLine = False
 firstFrame = True
 
 #객체의 정보를 담고있는 blob class
-
 class blob :
 
     def __init__(self, contour):
 
-        global centerPosition
+        global centerPosition #blob의 center x,y좌표
         global centerPositions
         global boundingRect #사격형 표현 x,y,w,h 의 멤버변수가짐
         global nextPosition
@@ -95,7 +98,6 @@ class blob :
 
 # 함 수 부 분
 ##################################################################################
-
 #객체의 다음 포지션을 예측하는 함수
     def predictNextPosition(self):
             numPositions = len(self.centerPositions)
@@ -129,7 +131,7 @@ class blob :
 
 
 
-
+###################################################################################
 # 현재 프레임의 blob과 이전 존재했던 blob 간의 match 후 blob정보를 갱신,추가 하는 함수
 def matchCurrentFrameBlobsToExistingBlobs(blobs,currentFrameBlobs):
     for existingBlob in blobs:
@@ -205,7 +207,7 @@ def drawMortarCountOnImage(mortarCount,image):
   #  cv2.putText(image, " {}".format(initText2), (20, 30),cv2.FONT_HERSHEY_SIMPLEX,0.5 (0,255,255),2)
 
 ####################################################################################
-
+#이전 프레임과 현재프레임 blob의 정보를 비교해 linePosition을 넘은 몰탈만 카운트
 def checkIfBlobsCrossedTheLine(blobs,linePosition,mortarCount):
     passLinea= False
     for blob in blobs:
@@ -223,7 +225,7 @@ def checkIfBlobsCrossedTheLine(blobs,linePosition,mortarCount):
 
 
 ####################################################################################
-
+# Main 부분
 while True:
 
     now = time.gmtime(time.time()) # 현재 시간불러오기
@@ -263,20 +265,22 @@ while True:
 # 이진화
     _, imgBinary = cv2.threshold(imgDiff,30,200,cv2.THRESH_BINARY)
 
+#모폴로지 연산을 위한 mask 설정
     mask= cv2.getStructuringElement(cv2.MORPH_RECT, (5,5))
 
+# 침식,팽창을 이용한 전처리
     for i in range(0, 1):
         imgBinary=cv2.dilate(imgBinary,mask,iterations = 1)
         imgBinary=cv2.dilate(imgBinary,mask,iterations = 1)
         imgBinary=cv2.erode(imgBinary,mask, iterations = 1)
 
-
+#윤곽선 따기
     image, contours ,hierarchy=cv2.findContours(imgBinary,cv2.RETR_TREE,cv2.CHAIN_APPROX_SIMPLE)
-
     imgContour =cv2.drawContours(imgBinary,contours,-1, (255,255,255), -1)
 
     cv2.imshow("contours", imgContour)
 
+#윤곽선 뭉뚱그리기? 아무튼 그런비슷한 개념이었음 윤곽선을 단순화하는 느낌
     global convexHulls
     convexHulls = []
 
@@ -284,7 +288,7 @@ while True:
         convexHull = cv2.convexHull(contours[i])
         convexHulls.append(convexHull)
 
-
+# 어떤 조건에 취합한 blob을 인식할 것인지 조건문
     frameBlob = []
     for i in range(len(convexHulls)):
         checkBlob = blob(convexHulls[i])
@@ -293,7 +297,7 @@ while True:
             frameBlob.append(checkBlob)
 
 
-
+# 첫번째 프레임이면 blob정보 그대로 넣고 첫번째 프레임이 아니라면 match 함수로
     if (firstFrame == True):
         for i in frameBlob:
             blobs.append(i)
@@ -306,19 +310,30 @@ while True:
 
     passLine ,mortarCount = checkIfBlobsCrossedTheLine(blobs,linePosition,mortarCount)
 
+
+# blob이 관심영역으로 지정한 linePosition을 지나는 순간 해당영역 이미지 객체 분류
     if(passLine == True):
         cv2.line(inputCopy, (Line[0][0], Line[0][1]), (Line[1][0], Line[1][1]), (0, 255, 0), 2)
 
         imgTest = imgPre[110:110+300,linePosition-100:linePosition+150]
-        i= i+1
+        i= i+10
 
-        cv2.imwrite("hymTest"+str(i)+".jpg",imgTest)
+        #cv2.imwrite("hymTest"+str(i)+".jpg",imgTest)
+        image_expanded = np.expand_dims(imgTest, axis=0)
 
-        #result = ob_dt.run_inference_for_single_image(image, ob_dt.detection_graph)
+        #몰탈 포장 분류 object_detection API
+        result=objectDetection.mortarClassification(imgTest,image_expanded)
+
+        cv2.imshow("classfication",imgTest)
+
+        print(result[0][0])
+
+
 
     else:
         cv2.line(inputCopy, (Line[0][0], Line[0][1]), (Line[1][0], Line[1][1]), (0, 0, 255), 2)
 
+#몰탈 카운트 정보 영상에 출력
     drawMortarCountOnImage(mortarCount,inputCopy)
 
     cv2.imshow('result',inputCopy)
@@ -330,7 +345,8 @@ while True:
 
   #      break
 
-    if(now.tm_min%33 == 0 and now.tm_sec == 0 ):
+# 10분마다 몰탈 카운트 정보 DB에 insert 하고 00시 정각에 모든 몰탈 카운트 정보 초기화
+    if(now.tm_min%10 == 0 and now.tm_sec == 0 ):
         cursor = conn.cursor()
         cursor.execute(
             "Insert Into PCS_PRODUCT_COUNT(PLANT_CD,BPNO,ITEM_CD,PDATE,LINE_NO,PTIME,PMINUTE) Values('I05','B','ABCD','2015',2,'1234','1424')")
@@ -344,6 +360,7 @@ while True:
     firstFrame = False
     cv2.waitKey(20)
 
+# esc 누르면 종료
     if cv2.waitKey(1) ==27:
         break
 
