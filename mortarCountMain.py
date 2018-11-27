@@ -8,7 +8,6 @@ import tensorflow as tf
 import multiprocessing
 
 import Object_detection_image as objectDetection
-
 #  데이터 베이스 연결
 
 conn= pymssql.connect(host='192.168.4.31', user = 'sa' ,password= 'auto',database = 'PCS',  as_dict=True)
